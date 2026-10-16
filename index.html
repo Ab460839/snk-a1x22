@@ -567,11 +567,37 @@ button:focus-visible,.file:focus-within{outline:2px solid var(--blood);outline-o
   nm.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();go.click()}});
   function submitScore(s){
     if(!myId||!playerName||s<=0||s<=myBest||writing)return;
+
     writing=true;
-    fetch(SUPABASE_URL+'/rest/v1/leaderboard',{method:'POST',headers:apiHeaders({'Content-Type':'application/json','Prefer':'return=minimal'}),body:JSON.stringify({player_id:myId,player_name:playerName,score:Math.floor(s)})})
-      .then(function(r){if(!r.ok)throw new Error('save');myBest=s;lbNote.textContent='تم إرسال نتيجتك إلى التصنيف العالمي.';loadBoard()})
-      .catch(function(){lbNote.textContent='تعذّر حفظ النتيجة. تحقق من صلاحيات جدول leaderboard.'})
-      .then(function(){writing=false});
+
+    fetch(
+      SUPABASE_URL+
+      '/rest/v1/leaderboard?on_conflict=player_id',
+      {
+        method:'POST',
+        headers:apiHeaders({
+          'Content-Type':'application/json',
+          'Prefer':'resolution=merge-duplicates,return=minimal'
+        }),
+        body:JSON.stringify({
+          player_id:myId,
+          player_name:playerName,
+          score:Math.floor(s)
+        })
+      }
+    )
+    .then(function(r){
+      if(!r.ok)throw new Error('save');
+      myBest=Math.max(myBest,s);
+      lbNote.textContent='تم إرسال نتيجتك إلى التصنيف العالمي.';
+      loadBoard();
+    })
+    .catch(function(){
+      lbNote.textContent='تعذّر حفظ النتيجة. تحقق من صلاحيات جدول leaderboard.';
+    })
+    .then(function(){
+      writing=false;
+    });
   }
   function initBoard(){
     fetch(SUPABASE_URL+'/rest/v1/leaderboard?select=score&player_id=eq.'+encodeURIComponent(myId)+'&order=score.desc&limit=1',{headers:apiHeaders()})
