@@ -535,77 +535,50 @@ button:focus-visible,.file:focus-within{outline:2px solid var(--blood);outline-o
 
   var nm=document.getElementById('nm'),nmErr=document.getElementById('nmErr');
   var lbList=document.getElementById('lbList'),lbNote=document.getElementById('lbNote');
-  var playerName='',myId=null,scoresDb=null,myBest=0,myStoredName='',writing=false;
+  var SUPABASE_URL='https://qgxpiehjkornrmysjvuc.supabase.co';
+  var SUPABASE_KEY='sb_publishable_pN1vvRDMjJ4sisSrWBvTtA_7-6dDY0n';
+  var playerName='',myId=null,myBest=0,writing=false;
   try{playerName=localStorage.getItem('a1x-snake-name')||''}catch(e){}
+  try{
+    myId=localStorage.getItem('a1x-snake-player-id');
+    if(!myId){myId=(window.crypto&&crypto.randomUUID)?crypto.randomUUID():('p-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2));localStorage.setItem('a1x-snake-player-id',myId)}
+  }catch(e){myId='p-'+Math.random().toString(36).slice(2)}
   nm.value=playerName;
   function cleanName(v){return String(v).replace(/\s+/g,' ').trim().slice(0,16)}
-
+  function apiHeaders(extra){var h={'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY};if(extra)Object.keys(extra).forEach(function(k){h[k]=extra[k]});return h}
+  function loadBoard(){
+    fetch(SUPABASE_URL+'/rest/v1/leaderboard?select=player_id,player_name,score,created_at&order=score.desc&limit=20',{headers:apiHeaders()})
+      .then(function(r){if(!r.ok)throw new Error('load');return r.json()})
+      .then(function(rows){
+        lbList.textContent='';
+        if(!rows.length){var empty=document.createElement('li');empty.className='empty';empty.textContent='لا نتائج بعد. كن أول من يسجّل نتيجته.';lbList.appendChild(empty);lbNote.textContent='التصنيف العالمي متصل.';return}
+        rows.forEach(function(v,i){var li=document.createElement('li');if(v.player_id===myId){li.className='me';myBest=Math.max(myBest,Number(v.score)||0)}var rank=document.createElement('span');rank.className='rk';rank.textContent=String(i+1);var n=document.createElement('span');n.className='nn';n.textContent=String(v.player_name||'—').slice(0,16);var sc=document.createElement('b');sc.className='sc';sc.textContent=String(Number(v.score)||0);li.appendChild(rank);li.appendChild(n);li.appendChild(sc);lbList.appendChild(li)});
+        lbNote.textContent='التصنيف العالمي · أفضل 20 لاعبًا';
+      }).catch(function(){lbNote.textContent='تعذّر تحميل التصنيف. تأكد من إعدادات Supabase والاتصال.'});
+  }
   go.addEventListener('click',function(){
     var v=cleanName(nm.value);
     if(!v){nmErr.textContent='اكتب اسمك أولًا.';nm.focus();return}
-    nmErr.textContent='';
-    playerName=v;
+    nmErr.textContent='';playerName=v;
     try{localStorage.setItem('a1x-snake-name',v)}catch(e){}
-    if(scoresDb&&myId&&myBest>0&&myStoredName&&v!==myStoredName){
-      scoresDb.doc('scores/'+myId).update({name:v}).then(function(){myStoredName=v}).catch(function(){});
-    }
     start();
   });
   nm.addEventListener('input',function(){nmErr.textContent=''});
   nm.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();go.click()}});
-
   function submitScore(s){
-    if(!scoresDb||!myId||s<=0||s<=myBest||writing)return;
+    if(!myId||!playerName||s<=0||s<=myBest||writing)return;
     writing=true;
-    scoresDb.doc('scores/'+myId).set({name:playerName,best:s,at:Date.now()}).then(function(){
-      myBest=s;myStoredName=playerName;
-    }).catch(function(err){
-      lbNote.textContent=(err&&err.code==='invalid_argument')
-        ?'لم تُسجَّل نتيجتك: ليس لديك صلاحية الكتابة في التصنيف.'
-        :'تعذّر حفظ نتيجتك في التصنيف. حاول مرة أخرى.';
-    }).then(function(){writing=false});
+    fetch(SUPABASE_URL+'/rest/v1/leaderboard',{method:'POST',headers:apiHeaders({'Content-Type':'application/json','Prefer':'return=minimal'}),body:JSON.stringify({player_id:myId,player_name:playerName,score:Math.floor(s)})})
+      .then(function(r){if(!r.ok)throw new Error('save');myBest=s;lbNote.textContent='تم إرسال نتيجتك إلى التصنيف العالمي.';loadBoard()})
+      .catch(function(){lbNote.textContent='تعذّر حفظ النتيجة. تحقق من صلاحيات جدول leaderboard.'})
+      .then(function(){writing=false});
   }
-
-  function renderBoard(snap){
-    lbList.textContent='';
-    if(snap.empty){
-      var e0=document.createElement('li');e0.className='empty';e0.textContent='لا نتائج بعد. كن أول من يسجّل نتيجته.';
-      lbList.appendChild(e0);return;
-    }
-    snap.docs.forEach(function(d,i){
-      var v=d.data()||{};
-      var li=document.createElement('li');
-      if(d.id===myId){li.className='me';myBest=Math.max(myBest,Number(v.best)||0);myStoredName=String(v.name||'')}
-      var r=document.createElement('span');r.className='rk';r.textContent=String(i+1);
-      var n=document.createElement('span');n.className='nn';n.textContent=String(v.name||'—').slice(0,16);
-      var sc=document.createElement('b');sc.className='sc';sc.textContent=String(Number(v.best)||0);
-      li.appendChild(r);li.appendChild(n);li.appendChild(sc);lbList.appendChild(li);
-    });
-  }
-
   function initBoard(){
-    if(!window.claude||!window.claude.use){lbNote.textContent='التصنيف المشترك يعمل فقط عند فتح الصفحة من claude.ai.';return}
-    Promise.all([window.claude.use('db'),window.claude.use('user')]).then(function(r){
-      var db=r[0],user=r[1];
-      if(!db){lbNote.textContent='التصنيف المشترك غير متاح لك. سجّل الدخول إلى حسابك على Claude وافتح الرابط من جديد.';return}
-      scoresDb=db;
-      var idP=user?user.id():Promise.resolve(null);
-      var canP=user?user.can('data.write'):Promise.resolve(null);
-      return Promise.all([idP,canP]).then(function(v){
-        myId=v[0];
-        lbNote.textContent=(v[1]===false||!myId)
-          ?'تقدر تشاهد التصنيف فقط. لتسجيل نتيجتك اطلب من صاحب الصفحة صلاحية Contributor.'
-          :'يُسجَّل أعلى رقم لك تلقائيًا بعد كل لعبة.';
-        if(myId){
-          db.doc('scores/'+myId).get().then(function(sn){
-            if(sn.exists){var dv=sn.data()||{};myBest=Math.max(myBest,Number(dv.best)||0);myStoredName=String(dv.name||'')}
-          }).catch(function(){});
-        }
-        db.collection('scores').orderBy('best','desc').limit(20).onSnapshot(renderBoard,function(){
-          lbNote.textContent='تعذّر تحميل التصنيف.';
-        });
-      });
-    }).catch(function(){lbNote.textContent='تعذّر الاتصال بالتصنيف.'});
+    fetch(SUPABASE_URL+'/rest/v1/leaderboard?select=score&player_id=eq.'+encodeURIComponent(myId)+'&order=score.desc&limit=1',{headers:apiHeaders()})
+      .then(function(r){if(!r.ok)throw new Error('player');return r.json()})
+      .then(function(rows){if(rows.length)myBest=Number(rows[0].score)||0;loadBoard()})
+      .catch(function(){lbNote.textContent='تعذّر الاتصال بالتصنيف. تحقق من إعدادات Supabase.'});
+    setInterval(loadBoard,30000);
   }
   window.addEventListener('resize',resize);
 
